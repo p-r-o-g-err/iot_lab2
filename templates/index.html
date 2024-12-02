@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="top-controls">
+    <h2>Мониторинг освещенности</h2>
+    <a href="{{ url_for('logout') }}" class="btn">Выйти</a>
+</div>
+
+<div class="form-group">
+    <h3>Настройки</h3>
+    <form method="POST" action="{{ url_for('settings') }}">
+        <div class="form-inline">
+            <label for="min_light">Минимальный уровень:</label>
+            <input type="number" name="min_light" id="min_light" step="1" min="0" max="1000" value="300" required>
+        </div>
+        <!-- <div class="form-inline">
+            <label for="max_light">Максимальный уровень:</label>
+            <input type="number" name="max_light" id="max_light" step="1" min="0" max="1000" value="500" required>
+        </div> -->
+        <button type="submit" class="btn">Сохранить</button>
+    </form>
+</div>
+
+<div class="form-group">
+    <h3>Текущая освещенность: <span id="light_level">--</span> люкс</h3>
+    <p>Статус светильника: <span id="light_status">Unknown</span></p>
+</div>
+
+<div class="chart" id="lightChart"></div>
+
+<script>
+// Инициализация графика
+let minLight = 300;
+// let maxLight = 500;
+
+let trace = {
+    x: [],
+    y: [],
+    type: 'scatter',
+    mode: 'lines+markers',
+    name: 'Освещенность'
+};
+
+let minTrace = {
+    x: [],
+    y: [],
+    type: 'scatter',
+    mode: 'lines',
+    name: 'Мин. освещенность',
+    line: {color: 'red', dash: 'dot'}
+};
+
+// let maxTrace = {
+//     x: [],
+//     y: [],
+//     type: 'scatter',
+//     mode: 'lines',
+//     name: 'Макс. освещенность',
+//     line: {color: 'red', dash: 'dot'}
+// };
+
+let layout = {
+    title: 'Освещенность со временем',
+    xaxis: { title: 'Дата и время', tickangle: -45, automargin: true },
+    yaxis: { title: 'Освещенность (люкс)' }
+};
+
+Plotly.newPlot('lightChart', [trace, minTrace], layout); // [trace, minTrace, maxTrace], layout);
+
+function updateSettings() {
+    fetch('/api/settings')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('min_light').value = data.min_light;
+            minLight = data.min_light;
+
+            // document.getElementById('max_light').value = data.max_light;
+            // maxLight = data.max_light;
+        });
+}
+
+function updateLight() {
+    fetch('/api/current_light')
+        .then(response => response.json())
+        .then(data => {
+            if (data.light_level !== null) {
+                document.getElementById('light_level').textContent = data.light_level.toFixed(1);
+                document.getElementById('light_status').textContent = data.light_status;
+            
+                // Обновляем основной график
+                if (data.timestamp && (new Date(data.timestamp)).toLocaleString() == trace.x[trace.x.length - 1]) {
+                    return;
+                }
+
+                trace.x.push(new Date(data.timestamp).toLocaleString());
+                trace.y.push(data.light_level);
+
+                // Ограничиваем количество точек
+                if (trace.x.length > 30) {
+                    trace.x.shift();
+                    trace.y.shift();
+                }
+
+                // Обновляем линии
+                minTrace.x = [...trace.x];
+                minTrace.y = Array(trace.x.length).fill(minLight);
+
+                //maxTrace.x = [...trace.x];
+                //maxTrace.y = Array(trace.x.length).fill(maxLight);
+
+                // Перерисовываем график
+                Plotly.react('lightChart', [trace, minTrace], layout); // [trace, minTrace, maxTrace], layout);
+            } else {
+                document.getElementById('light_level').textContent = "--";
+                document.getElementById('light_status').textContent = "Нет данных";
+            }
+        });
+}
+
+function loadHistoricalData() {
+    fetch('/api/light_history')
+        .then(response => response.json())
+        .then(data => {
+             // Загружаем исторические данные
+             data.forEach(item => {
+                trace.x.push(new Date(item.timestamp).toLocaleString());
+                trace.y.push(item.light_level);
+            });
+
+            minTrace.x = [...trace.x];
+            minTrace.y = Array(trace.x.length).fill(minLight);
+
+            // maxTrace.x = [...trace.x];
+            // maxTrace.y = Array(trace.x.length).fill(maxLight);
+
+            // Перерисовываем график
+            Plotly.react('lightChart', [trace, minTrace], layout); // [trace, minTrace, maxTrace], layout);
+        });
+}
+
+// Получение настроек
+updateSettings();
+// Загрузка истории при первой загрузке страницы
+loadHistoricalData();
+// Обновление данных каждые 2 секунды
+setInterval(updateLight, 2000);
+</script>
+{% endblock %}
